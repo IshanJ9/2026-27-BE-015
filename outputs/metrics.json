@@ -1,0 +1,25 @@
+{
+  "ssim": {
+    "mean_ssim": 0.9962635848835478,
+    "min_ssim": 0.9912738096159197,
+    "max_ssim": 0.9987657158758254,
+    "std_ssim": 0.0016238861356878082,
+    "per_frame_ssim": "[100 values, mean=0.9963]"
+  },
+  "psnr": {
+    "mean_psnr": 42.375293139419625,
+    "min_psnr": 35.60337356300346,
+    "max_psnr": 49.128968931518735,
+    "std_psnr": 3.1259695820331164,
+    "per_frame_psnr": "[100 values, mean=42.3753]"
+  },
+  "stoi": {
+    "stoi_score": 0.6455397007075213
+  },
+  "sync": {
+    "lse_d": 1.0282701253890991,
+    "mean_correlation": -0.028270144015550613,
+    "std_correlation": 0.03906553238630295,
+    "per_frame_correlation": "[100 values, mean=-0.0283]"
+  }
+}
