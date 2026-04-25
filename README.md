@@ -6,17 +6,15 @@
 ![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?logo=opencv&logoColor=white)
 
 ## Overview
-The **Audio-Visual Packet Loss Concealment System** is an advanced machine learning pipeline that performs cross-modal restoration of corrupted video and audio streams. By utilizing sophisticated pre-trained neural networks—including Wav2Vec2 and Stable Diffusion VAE—alongside signal processing techniques like Griffin-Lim and Poisson seamless cloning, the system adeptly reconstructs lost audio segments using visual cues, and restores degraded visual frames (specifically mouth regions) utilizing acoustic features.
+The **Audio-Visual Packet Loss Concealment System** is an advanced machine learning pipeline that performs cross-modal restoration of corrupted video and audio streams. It uses **Wav2Vec2** for dense acoustic feature extraction, combined with signal processing techniques — per-segment spectral reconstruction, phase-aware interpolation, and energy-matched gap filling — to restore lost audio packets. On the video side, it recovers corrupted mouth regions by matching audio embeddings to a reference bank of clean mouth crops with LAB color space blending and feathered-edge compositing.
 
 ## Features
 - **Cross-Modal Restoration**:
   - **Audio to Video (Lip Recovery)**: Retrieves missing visual lip movements using intact audio chunks.
   - **Video to Audio (Speech Recovery)**: Reconstructs lost audio packets leveraging visual phoneme/mouth movements.
 - **Advanced Corruption Simulation**: Injects realistic packet loss scenarios, simulating network degradation by dropping audio sequences and masking visual facial/mouth data.
-- **State-of-the-Art Neural Encoding**:
-  - `Wav2Vec2` for dense acoustic feature extraction.
-  - `Stable Diffusion VAE` for high-fidelity latent video frame representations.
-- **Robust Post-Processing**: Includes seamless cloning, LAB color space skin-tone matching, and feathered edge blending to eliminate visual artifacts during frame reconstruction.
+- **Neural Encoding**: `Wav2Vec2` for dense acoustic feature extraction and frame-aligned audio embeddings. Optionally, `Stable Diffusion VAE` for latent video frame analysis.
+- **Robust Post-Processing**: Includes LAB color space skin-tone matching, feathered edge blending, and temporal smoothing to eliminate visual artifacts during frame reconstruction.
 - **Comprehensive Evaluation Suite**: Automatically generates quantitative assessments comparing the restored streams against base truth using SSIM, PSNR, STOI, and LSE-D metrics.
 
 ## Core Restoration Methodologies
@@ -30,20 +28,28 @@ The **Audio-Visual Packet Loss Concealment System** is an advanced machine learn
 
 ### 2. Audio Restoration (Video $\rightarrow$ Audio)
 * **Goal**: Synthesize missing audio packets using the speaker's lip movements.
-* **Mechanism**: 
-  - **Spectral Interpolation**: Identifies gaps in the audio STFT spectrogram and interpolates the missing magnitude values using surrounding uncorrupted context.
-  - **Phase Reconstruction**: Uses the **Griffin-Lim algorithm** to invert the completed magnitude spectrogram back into a time-domain audio waveform.
-  - **Visual Energy Modulation**: Calculates the motion energy of the lips from the video frames (optical flow). This lip-movement envelope is multiplied against the reconstructed audio to inject natural speech prosody (volume rises and falls naturally with jaw opening/closing).
+* **Mechanism** (Per-Segment Reconstruction): 
+  - **Gap Detection**: Identifies each contiguous corrupted segment from the corruption mask.
+  - **Short Gaps (<30ms)**: Filled using equal-power sinusoidal waveform crossfade — perceptually seamless, identical to professional VoIP codecs.
+  - **Longer Gaps (30ms–200ms)**: Reconstructed per-segment using local STFT with:
+    - **Cubic spline magnitude interpolation** from surrounding clean context frames.
+    - **Phase-aware interpolation** (unwrapped phase continuity) to avoid metallic artifacts.
+    - **Griffin-Lim refinement** (only for gaps >100ms) to polish phase estimates.
+  - **RMS Energy Matching**: Each fill is scaled so its energy matches the surrounding speech — prevents the fill from sounding quieter than the context.
+  - **Visual Energy Boost**: Mouth motion optical flow provides a speech-activity envelope. This BOOSTS (not attenuates) the reconstructed audio during active lip movement.
+  - **Comfort Noise Safety Net**: Any remaining zero-valued samples are filled with spectrally-shaped comfort noise to guarantee no audible silence drops.
+
+> **Note**: Signal-processing-based reconstruction cannot recover the actual spoken words — the information is destroyed by packet loss. The goal is to make the gaps *inaudible* by filling them with plausible, energy-matched audio. True speech recovery would require a neural speech synthesis model (e.g., Lip2Wav, Voicebox) trained on the specific speaker.
 
 ## Pipeline Architecture
-The execution pipeline is modularized into seven distinct mathematical and processing stages:
-1. **Data Loading**: Ingests video (`.mp4`), extracting sequential frames and sampling audio at an optimal target rate (`16kHz`).
-2. **Stream Corruption**: Randomly nullifies specific audio ranges and visually masks mouth geometries to mimic true packet loss.
-3. **Encoding**: Processes the isolated streams via pretrained encoders (`Wav2Vec2` & `VAE`) mapping into latent spatial and acoustic embeddings.
-4. **Audio $\rightarrow$ Video Restoration**: Projects audio embeddings back into the visual domain to reconstruct and seamlessly blend the speaker's mouth.
-5. **Video $\rightarrow$ Audio Restoration**: Maps facial/mouth sequences via Griffin-Lim inversions to predict and synthesize missing speech chunks.
-6. **Quality Evaluation**: Computes scoring metrics to evaluate synchronization constraints and perceptual quality.
-7. **Output Writing**: Renders high-quality comparative multiplexed outputs and composite `.mp4` payloads.
+The execution pipeline is modularized into seven distinct stages:
+1. **Data Loading**: Ingests video (`.mp4`), extracting sequential frames and sampling audio at `16kHz`.
+2. **Stream Corruption**: Randomly zeroes audio segments and blacks out mouth regions via MediaPipe face landmarks to simulate packet loss.
+3. **Encoding**: Extracts dense audio embeddings via `Wav2Vec2`. Optionally encodes video frames to latent space via `Stable Diffusion VAE` (skippable with `--skip-vae`).
+4. **Audio → Video Restoration**: Matches audio embeddings to a reference bank of clean mouth crops via cosine similarity, then pastes the best match with color-corrected feathered blending.
+5. **Video → Audio Restoration**: Per-segment spectral reconstruction with phase-aware interpolation, energy matching, and lip-motion boosting. Short gaps use waveform crossfade; longer gaps use local STFT reconstruction.
+6. **Quality Evaluation**: Computes SSIM, PSNR (video), STOI (audio), and LSE-D (audio-visual sync) metrics.
+7. **Output Writing**: Renders original, corrupted, restored, and side-by-side comparison `.mp4` files with muxed audio.
 
 ## Installation
 
@@ -56,8 +62,8 @@ The execution pipeline is modularized into seven distinct mathematical and proce
 Clone the repository and install the project dependencies:
 
 ```bash
-git clone https://github.com/your-username/av-packet-loss-concealment.git
-cd av-packet-loss-concealment
+git clone https://github.com/sudarshan026/AV-Restoration.git
+cd AV-Restoration
 
 # It is recommended to use a virtual environment
 python -m venv venv
@@ -105,8 +111,8 @@ cap/
 │   ├── data_loader.py     # Parses input AV stream using OpenCV and Librosa.
 │   ├── output_writer.py   # Assembles multiplexed comparison clips.
 │   ├── sync_evaluator.py  # Generates SSIM, PSNR, STOI, and LSE-D values.
-│   ├── video_encoder.py   # Compresses frames using Stable Diffusion VAE.
-│   └── video_to_audio.py  # Predicts soundscapes from video frames.
+│   ├── video_encoder.py   # Optional latent frame encoding via Stable Diffusion VAE.
+│   └── video_to_audio.py  # Per-segment audio restoration with phase-aware reconstruction.
 ├── outputs/               # Default render destination for pipeline results.
 ├── batch_generate.py      # Script for batch processing dataset videos.
 ├── main.py                # Pipeline entry point & orchestrator.
@@ -121,4 +127,9 @@ Post execution, the system saves a comprehensively structured `metrics.json` fil
 - **LSE-D (Lip-Sync Error Distance)**: Determines mathematically how well constructed audio alignments match lip physical movements based on sync-net embeddings.
 
 ## Acknowledgements
-Designed for high-fidelity communication restoration, leveraging the capabilities of `HuggingFace Transformers`, pre-trained `Wav2Vec2`, `Stable Diffusion / diffusers`, and `MediaPipe` face mesh extraction.
+Built for high-fidelity communication restoration, leveraging:
+- [HuggingFace Transformers](https://huggingface.co/docs/transformers) — pre-trained `Wav2Vec2` for acoustic embeddings
+- [MediaPipe](https://ai.google.dev/edge/mediapipe) — Face Landmarker for mouth region detection
+- [Librosa](https://librosa.org/) — STFT, Griffin-Lim, and audio processing
+- [OpenCV](https://opencv.org/) — Frame processing, color transfer, and seamless blending
+- [Stable Diffusion VAE](https://huggingface.co/stabilityai/sd-vae-ft-mse) (optional) — Latent space frame analysis
